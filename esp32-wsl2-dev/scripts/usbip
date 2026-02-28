@@ -1,0 +1,358 @@
+#!/usr/bin/env bash
+#
+# usbip - WSL2 wrapper for usbipd-win commands
+#
+# Run usbipd commands from within WSL2 without switching to PowerShell.
+# Device-agnostic - works with any USB device.
+#
+# Usage:
+#   usbip list                    # List all USB devices
+#   usbip attach <BUSID>          # Attach device to WSL2
+#   usbip detach <BUSID>          # Detach device from WSL2
+#   usbip bind <BUSID>            # Bind device (requires admin - opens elevated prompt)
+#   usbip auto <VID:PID>          # Auto-attach device by VID:PID when connected
+#   usbip status                  # Show attached devices in WSL2
+#
+# Examples:
+#   usbip list                    # See all devices and their BUSIDs
+#   usbip attach 5-10             # Attach device at BUSID 5-10
+#   usbip bind 5-10               # Bind device (one-time, needs admin)
+#
+
+set -e
+
+# Trap for debugging unexpected exits
+trap 'echo -e "${RED}Script failed at line $LINENO${NC}" >&2' ERR
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Input validation functions
+validate_busid() {
+    local busid="$1"
+    if [[ ! "$busid" =~ ^[0-9]+-[0-9]+$ ]]; then
+        echo -e "${RED}Error: Invalid BUSID format '${busid}'${NC}"
+        echo "Expected format: X-Y (e.g., 5-10)"
+        exit 1
+    fi
+}
+
+validate_vidpid() {
+    local vidpid="$1"
+    if [[ ! "$vidpid" =~ ^[0-9a-fA-F]{4}:[0-9a-fA-F]{4}$ ]]; then
+        echo -e "${RED}Error: Invalid VID:PID format '${vidpid}'${NC}"
+        echo "Expected format: XXXX:XXXX (e.g., 10c4:ea60)"
+        exit 1
+    fi
+}
+
+# Detect if running in WSL2
+check_wsl2() {
+    if ! grep -qi microsoft /proc/version 2>/dev/null; then
+        echo -e "${RED}Error: This script must be run in WSL2${NC}"
+        exit 1
+    fi
+}
+
+# Find PowerShell executable
+find_powershell() {
+    # Try common locations
+    local ps_paths=(
+        "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+        "/mnt/c/Windows/SysWOW64/WindowsPowerShell/v1.0/powershell.exe"
+        "powershell.exe"
+    )
+
+    for ps in "${ps_paths[@]}"; do
+        if command -v "$ps" &>/dev/null || [[ -x "$ps" ]]; then
+            echo "$ps"
+            return 0
+        fi
+    done
+
+    echo -e "${RED}Error: PowerShell not found${NC}" >&2
+    exit 1
+}
+
+# Check if usbipd is installed
+check_usbipd() {
+    local ps="$1"
+    if ! "$ps" -Command "Get-Command usbipd -ErrorAction SilentlyContinue" &>/dev/null; then
+        echo -e "${RED}Error: usbipd-win is not installed${NC}"
+        echo ""
+        echo "Install it from: https://github.com/dorssel/usbipd-win/releases"
+        echo "Or via winget:   winget install usbipd"
+        exit 1
+    fi
+}
+
+# Run usbipd command
+run_usbipd() {
+    local ps="$1"
+    shift
+    "$ps" -Command "usbipd $*" 2>&1 | tr -d '\r'
+}
+
+# List USB devices
+cmd_list() {
+    local ps="$1"
+    echo -e "${BLUE}=== USB Devices ===${NC}"
+    echo ""
+    run_usbipd "$ps" "list"
+}
+
+# Attach device to WSL2
+cmd_attach() {
+    local ps="$1"
+    local busid="$2"
+
+    if [[ -z "$busid" ]]; then
+        echo -e "${RED}Error: BUSID required${NC}"
+        echo "Usage: usbip attach <BUSID>"
+        echo ""
+        echo "Run 'usbip list' to see available devices"
+        exit 1
+    fi
+
+    validate_busid "$busid"
+
+    echo -e "${YELLOW}Attaching device ${busid} to WSL2...${NC}"
+    local output
+    output=$(run_usbipd "$ps" "attach --wsl --busid $busid" 2>&1)
+    local exit_code=$?
+
+    if echo "$output" | grep -qi "error"; then
+        echo -e "${RED}$output${NC}"
+        if echo "$output" | grep -qi "not shared"; then
+            echo ""
+            echo -e "${YELLOW}Hint: Run 'usbip bind $busid' first (requires admin)${NC}"
+        fi
+        exit 1
+    else
+        echo -e "${GREEN}Device $busid attached successfully${NC}"
+        echo ""
+        echo "Check WSL2 devices:"
+        ls -la /dev/ttyUSB* /dev/ttyACM* 2>/dev/null || echo "  (no serial devices yet - wait a moment)"
+    fi
+}
+
+# Detach device from WSL2
+cmd_detach() {
+    local ps="$1"
+    local busid="$2"
+
+    if [[ -z "$busid" ]]; then
+        echo -e "${RED}Error: BUSID required${NC}"
+        echo "Usage: usbip detach <BUSID>"
+        exit 1
+    fi
+
+    validate_busid "$busid"
+
+    echo -e "${YELLOW}Detaching device ${busid}...${NC}"
+    local output
+    output=$(run_usbipd "$ps" "detach --busid $busid" 2>&1)
+
+    if echo "$output" | grep -qi "error\|not attached\|not found"; then
+        echo -e "${RED}Failed to detach device: $output${NC}"
+        exit 1
+    else
+        echo -e "${GREEN}Device $busid detached${NC}"
+    fi
+}
+
+# Bind device (requires admin)
+cmd_bind() {
+    local ps="$1"
+    local busid="$2"
+
+    if [[ -z "$busid" ]]; then
+        echo -e "${RED}Error: BUSID required${NC}"
+        echo "Usage: usbip bind <BUSID>"
+        exit 1
+    fi
+
+    validate_busid "$busid"
+
+    echo -e "${YELLOW}Binding device ${busid}...${NC}"
+    echo -e "${YELLOW}Note: This requires administrator privileges${NC}"
+    echo ""
+
+    # Try direct bind first (might work if already elevated or UAC disabled)
+    local output
+    output=$(run_usbipd "$ps" "bind --busid $busid" 2>&1)
+
+    if echo "$output" | grep -qi "error\|denied\|administrator"; then
+        echo -e "${YELLOW}Elevated prompt required. Opening admin PowerShell...${NC}"
+        echo ""
+
+        # Use Start-Process to elevate
+        "$ps" -Command "Start-Process -Verb RunAs -FilePath 'usbipd' -ArgumentList 'bind','--busid','$busid' -Wait"
+
+        # Verify the bind actually worked
+        echo -e "${YELLOW}Verifying bind status...${NC}"
+        local verify_output
+        verify_output=$(run_usbipd "$ps" "list")
+
+        if echo "$verify_output" | grep -E "^\s*$busid" | grep -qi "shared"; then
+            echo -e "${GREEN}Device $busid bound successfully${NC}"
+        else
+            echo -e "${YELLOW}Could not verify bind succeeded. Check 'usbip list' for current state.${NC}"
+        fi
+    else
+        if echo "$output" | grep -qi "already shared"; then
+            echo -e "${GREEN}Device $busid is already bound${NC}"
+        else
+            echo -e "${GREEN}Device $busid bound successfully${NC}"
+        fi
+    fi
+}
+
+# Show WSL2 device status
+cmd_status() {
+    echo -e "${BLUE}=== WSL2 Serial Devices ===${NC}"
+    echo ""
+
+    local found=false
+
+    if ls /dev/ttyUSB* 2>/dev/null; then
+        found=true
+    fi
+
+    if ls /dev/ttyACM* 2>/dev/null; then
+        found=true
+    fi
+
+    if [[ "$found" == "false" ]]; then
+        echo "No serial devices found in WSL2"
+        echo ""
+        echo "Attach a device with: usbip attach <BUSID>"
+    fi
+
+    echo ""
+    echo -e "${BLUE}=== Recent USB Kernel Messages ===${NC}"
+    dmesg | grep -iE "usb|tty|acm|cp210" | tail -10
+}
+
+# Auto-attach by VID:PID
+cmd_auto() {
+    local ps="$1"
+    local vidpid="$2"
+
+    if [[ -z "$vidpid" ]]; then
+        echo -e "${RED}Error: VID:PID required${NC}"
+        echo "Usage: usbip auto <VID:PID>"
+        echo ""
+        echo "Example: usbip auto 10c4:ea60    # Auto-attach CP2102N"
+        exit 1
+    fi
+
+    validate_vidpid "$vidpid"
+
+    echo -e "${YELLOW}Looking for device with VID:PID ${vidpid}...${NC}"
+
+    # Get list and find matching device
+    local list_output
+    list_output=$(run_usbipd "$ps" "list")
+
+    local busid
+    busid=$(echo "$list_output" | grep -Fi "$vidpid" | awk '{print $1}' | head -1)
+
+    if [[ -z "$busid" ]]; then
+        echo -e "${RED}No device found with VID:PID ${vidpid}${NC}"
+        echo ""
+        echo "Available devices:"
+        echo "$list_output"
+        exit 1
+    fi
+
+    echo -e "${GREEN}Found device at BUSID: ${busid}${NC}"
+    cmd_attach "$ps" "$busid"
+}
+
+# Show help
+cmd_help() {
+    cat << 'EOF'
+usbip - WSL2 wrapper for usbipd-win
+
+USAGE:
+    usbip <command> [arguments]
+
+COMMANDS:
+    list                List all USB devices and their state
+    attach <BUSID>      Attach device to WSL2
+    detach <BUSID>      Detach device from WSL2
+    bind <BUSID>        Bind device for sharing (requires admin)
+    auto <VID:PID>      Find and attach device by VID:PID
+    status              Show serial devices in WSL2
+
+EXAMPLES:
+    usbip list                    # See all devices
+    usbip attach 5-10             # Attach BUSID 5-10
+    usbip auto 10c4:ea60          # Auto-attach CP2102N by VID:PID
+    usbip bind 5-9                # Bind device (needs admin)
+
+COMMON VID:PID VALUES:
+    303a:1001    ESP32-S3 USB JTAG/serial (running)
+    303a:4001    ESP32-S3 bootloader mode
+    10c4:ea60    CP2102N USB-to-UART bridge
+    1a86:7523    CH340 USB-to-UART bridge
+    0403:6001    FTDI FT232R USB-to-UART
+
+NOTE:
+    The 'bind' command requires administrator privileges and will
+    open an elevated PowerShell prompt if needed.
+EOF
+}
+
+# Main
+main() {
+    check_wsl2
+
+    local ps
+    ps=$(find_powershell)
+
+    local cmd="${1:-help}"
+    shift || true
+
+    case "$cmd" in
+        list|ls)
+            check_usbipd "$ps"
+            cmd_list "$ps"
+            ;;
+        attach|a)
+            check_usbipd "$ps"
+            cmd_attach "$ps" "$@"
+            ;;
+        detach|d)
+            check_usbipd "$ps"
+            cmd_detach "$ps" "$@"
+            ;;
+        bind|b)
+            check_usbipd "$ps"
+            cmd_bind "$ps" "$@"
+            ;;
+        auto)
+            check_usbipd "$ps"
+            cmd_auto "$ps" "$@"
+            ;;
+        status|s)
+            cmd_status
+            ;;
+        help|--help|-h)
+            cmd_help
+            ;;
+        *)
+            echo -e "${RED}Unknown command: $cmd${NC}"
+            echo ""
+            cmd_help
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

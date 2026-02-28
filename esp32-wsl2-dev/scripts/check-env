@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Wrapper for check-env.py
+# Usage: check-env [--json] [--quiet]
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || {
+    echo "Error: Cannot determine script directory" >&2
+    exit 1
+}
+
+if ! command -v python3 &>/dev/null; then
+    echo "Error: python3 is not installed" >&2
+    echo "Install with: sudo apt install python3" >&2
+    exit 1
+fi
+
+if [[ ! -f "$SCRIPT_DIR/check-env.py" ]]; then
+    echo "Error: check-env.py not found at $SCRIPT_DIR" >&2
+    exit 1
+fi
+
+exec python3 "$SCRIPT_DIR/check-env.py" "$@"
