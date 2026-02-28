@@ -199,11 +199,20 @@ def check_esp_idf() -> CheckResult:
         # Check if ESP-IDF exists but isn't sourced
         default_path = os.path.expanduser("~/esp/esp-idf")
         if os.path.isdir(default_path):
+            # Try to read version even when not sourced
+            version_file = Path(default_path) / "version.txt"
+            version_info = ""
+            if version_file.exists():
+                try:
+                    version_info = f" (v{version_file.read_text().strip()})"
+                except:
+                    pass
             return CheckResult(
                 "ESP-IDF",
                 False,
-                "ESP-IDF found but not sourced",
-                "Run: source ~/esp/esp-idf/export.sh"
+                f"ESP-IDF found but not sourced{version_info}",
+                "Run: source ~/esp/esp-idf/export.sh (commands auto-source)",
+                critical=False  # Not critical - commands will auto-source
             )
         else:
             return CheckResult(
@@ -251,12 +260,23 @@ def check_idf_tools() -> CheckResult:
             "idf.py is available in PATH"
         )
     else:
-        return CheckResult(
-            "ESP-IDF Tools",
-            False,
-            "idf.py not found in PATH",
-            "Run: source ~/esp/esp-idf/export.sh"
-        )
+        # Check if ESP-IDF exists - if so, just needs sourcing (non-critical)
+        default_path = os.path.expanduser("~/esp/esp-idf")
+        if os.path.isdir(default_path):
+            return CheckResult(
+                "ESP-IDF Tools",
+                False,
+                "idf.py not in PATH (needs sourcing)",
+                "Run: source ~/esp/esp-idf/export.sh (commands auto-source)",
+                critical=False  # Not critical - commands will auto-source
+            )
+        else:
+            return CheckResult(
+                "ESP-IDF Tools",
+                False,
+                "idf.py not found in PATH",
+                "Install ESP-IDF first"
+            )
 
 
 def check_system_tools() -> CheckResult:
