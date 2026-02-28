@@ -1,11 +1,22 @@
 {
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "sirpangolin-claude-plugins",
   "description": "Personal Claude Code plugin marketplace by SirPangolin",
+  "owner": {
+    "name": "Cody Reed",
+    "email": "sirpangolin@users.noreply.github.com"
+  },
   "plugins": [
     {
       "name": "esp32-wsl2-dev",
-      "path": "esp32-wsl2-dev",
-      "description": "ESP32 development toolkit for Windows 11 + WSL2 environments"
+      "description": "ESP32 development toolkit for Windows 11 + WSL2 environments",
+      "version": "1.0.0",
+      "author": {
+        "name": "Cody Reed",
+        "email": "sirpangolin@users.noreply.github.com"
+      },
+      "source": "./esp32-wsl2-dev",
+      "category": "development"
     }
   ]
 }
