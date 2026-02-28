@@ -1,0 +1,11 @@
+{
+  "name": "sirpangolin-claude-plugins",
+  "description": "Personal Claude Code plugin marketplace by SirPangolin",
+  "plugins": [
+    {
+      "name": "esp32-wsl2-dev",
+      "path": "esp32-wsl2-dev",
+      "description": "ESP32 development toolkit for Windows 11 + WSL2 environments"
+    }
+  ]
+}
