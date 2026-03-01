@@ -1,6 +1,6 @@
 {
   "name": "esp32-wsl2-dev",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "ESP32 development toolkit for Windows 11 + WSL2 environments. Provides USB passthrough (usbipd), flashing, and serial monitoring workflows for ESP-IDF projects.",
   "author": {
     "name": "Cody Reed"
