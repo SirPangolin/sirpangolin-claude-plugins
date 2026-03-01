@@ -92,17 +92,21 @@ The board has **two micro-USB ports**:
 
 | GPIO | Function | Notes |
 |------|----------|-------|
-| GPIO0 | BOOT button | Directly connected to ground when pressed |
+| GPIO0 | BOOT button | Strapping pin, directly connected to ground when pressed |
 | GPIO19 | USB_D- | Native USB data minus |
 | GPIO20 | USB_D+ | Native USB data plus |
+| GPIO35-37 | Reserved | Internal Octal SPI for PSRAM (do not use on N32R8V) |
+| GPIO38 | RGB LED | WS2812 on v1.1 boards (silkscreen: "RGB@IO38") |
 | GPIO43 | U0TXD | UART0 TX (to CP2102N RX) |
 | GPIO44 | U0RXD | UART0 RX (from CP2102N TX) |
-| GPIO48 | RGB LED | Directly connected on DevKitC-1 |
+| GPIO48 | General GPIO | Was RGB LED on v1.0; available for other use on v1.1 |
 
 ## LED
 
-- **RGB LED**: WS2812 on GPIO48
-- **Power LED**: Red, always on when powered
+- **RGB LED**: WS2812 addressable LED
+  - **v1.1 boards**: GPIO38 (silkscreen shows "RGB@IO38")
+  - **v1.0 boards**: GPIO48
+- **Power LED (SYS)**: Red, always on when powered
 
 ## Crystal
 
